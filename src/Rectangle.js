@@ -27,34 +27,6 @@ class Rectangle {
     }
 
     /**
-     * Initialize a Rectangle to the minimum AABB around a set of points.
-     * @param {Array<Array<number>>} points Array of [x, y] points.
-     */
-    initFromPointsAABB (points) {
-        this.left = Infinity;
-        this.right = -Infinity;
-        this.top = -Infinity;
-        this.bottom = Infinity;
-
-        for (let i = 0; i < points.length; i++) {
-            const x = points[i][0];
-            const y = points[i][1];
-            if (x < this.left) {
-                this.left = x;
-            }
-            if (x > this.right) {
-                this.right = x;
-            }
-            if (y > this.top) {
-                this.top = y;
-            }
-            if (y < this.bottom) {
-                this.bottom = y;
-            }
-        }
-    }
-
-    /**
      * Initialize a Rectangle to a 1 unit square centered at 0 x 0 transformed
      * by a model matrix.
      * @param {Array.<number>} m A 4x4 matrix to transform the rectangle by.
@@ -123,7 +95,7 @@ class Rectangle {
         this.right = Math.min(this.right, right);
         this.bottom = Math.max(this.bottom, bottom);
         this.top = Math.min(this.top, top);
-        
+
         this.left = Math.min(this.left, right);
         this.right = Math.max(this.right, left);
         this.bottom = Math.min(this.bottom, top);

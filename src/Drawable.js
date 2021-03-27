@@ -13,7 +13,6 @@ const log = require('./util/log');
  * @type {twgl.v3}
  */
 const __isTouchingPosition = twgl.v3.create();
-const FLOATING_POINT_ERROR_ALLOWANCE = 1e-6;
 
 /**
  * Convert a scratch space location into a texture space float.  Uses the
@@ -26,23 +25,23 @@ const FLOATING_POINT_ERROR_ALLOWANCE = 1e-6;
  * @return {twgl.v3} [x,y] texture space float vector - transformed by effects and matrix
  */
 const getLocalPosition = (drawable, vec) => {
-    // Transfrom from world coordinates to Drawable coordinates.
+    // Transform from world coordinates to Drawable coordinates.
     const localPosition = __isTouchingPosition;
-    const v0 = vec[0];
-    const v1 = vec[1];
+    // World coordinates/screen-space coordinates refer to pixels by integer coordinates.
+    // The GL rasterizer considers a pixel to be an area sample.
+    // Without multisampling, it samples once from the pixel center,
+    // which is offset by (0.5, 0.5) from the pixel's integer coordinate.
+    // If you think of it as a pixel grid, the coordinates we're given are grid lines, but we want grid boxes.
+    // That's why we offset by 0.5 (-0.5 in the Y direction because it's flipped).
+    const v0 = vec[0] + 0.5;
+    const v1 = vec[1] - 0.5;
     const m = drawable._inverseMatrix;
-    // var v2 = v[2];
     const d = (v0 * m[3]) + (v1 * m[7]) + m[15];
     // The RenderWebGL quad flips the texture's X axis. So rendered bottom
     // left is 1, 0 and the top right is 0, 1. Flip the X axis so
     // localPosition matches that transformation.
     localPosition[0] = 0.5 - (((v0 * m[0]) + (v1 * m[4]) + m[12]) / d);
     localPosition[1] = (((v0 * m[1]) + (v1 * m[5]) + m[13]) / d) + 0.5;
-    // Fix floating point issues near 0. Filed https://github.com/LLK/scratch-render/issues/688 that
-    // they're happening in the first place.
-    // TODO: Check if this can be removed after render pull 479 is merged
-    if (Math.abs(localPosition[0]) < FLOATING_POINT_ERROR_ALLOWANCE) localPosition[0] = 0;
-    if (Math.abs(localPosition[1]) < FLOATING_POINT_ERROR_ALLOWANCE) localPosition[1] = 0;
     // Apply texture effect transform if the localPosition is within the drawable's space,
     // and any effects are currently active.
     if (drawable.enabledEffects !== 0 &&
@@ -124,6 +123,7 @@ class Drawable {
         this._transformedHullDirty = true;
 
         this._skinWasAltered = this._skinWasAltered.bind(this);
+        this._silhouetteWasUpdated = this._silhouetteWasUpdated.bind(this);
 
         this.isTouching = this._isTouchingNever;
     }
@@ -167,10 +167,12 @@ class Drawable {
         if (this._skin !== newSkin) {
             if (this._skin) {
                 this._skin.removeListener(Skin.Events.WasAltered, this._skinWasAltered);
+                this._skin.removeListener(Skin.Events.SilhouetteUpdated, this._silhouetteWasUpdated);
             }
             this._skin = newSkin;
             if (this._skin) {
                 this._skin.addListener(Skin.Events.WasAltered, this._skinWasAltered);
+                this._skin.addListener(Skin.Events.SilhouetteUpdated, this._silhouetteWasUpdated);
             }
             this._skinWasAltered();
         }
@@ -404,7 +406,7 @@ class Drawable {
         // Drawable configures a 3D matrix for drawing in WebGL, but most values
         // will never be set because the inputs are on the X and Y position axis
         // and the Z rotation axis. Drawable can bring the work inside
-        // _calculateTransform and greatly reduce the ammount of math and array
+        // _calculateTransform and greatly reduce the amount of math and array
         // assignments needed.
 
         const scale0 = this._skinScale[0];
@@ -505,6 +507,38 @@ class Drawable {
     }
 
     /**
+     * Initialize a bounding rectangle with a set of convex hull points, taking into account that the points refer to
+     * pixel centers and not pixel edges.
+     * @param {Rectangle} rect The bounding rectangle to initialize
+     * @param {Array<Array.number>} points The convex hull points
+     */
+    _initRectangleFromConvexHullPoints (rect, points) {
+        rect.left = Infinity;
+        rect.right = -Infinity;
+        rect.top = -Infinity;
+        rect.bottom = Infinity;
+
+        // Each convex hull point is the center of a pixel. However, said pixels each have area. We must take into
+        // account the size of the pixels when calculating the bounds. The pixel dimensions depend on the scale and
+        // rotation (as we're treating pixels as squares, which change dimensions when rotated).
+
+        // The "Scratch-space" size of one texture pixel at the drawable's current size.
+        const pixelScale = (this.scale[0] / 100) * (this.skin.size[0] / this.skin._silhouette._width);
+        // Half the size of a rotated pixel, if we assume pixels are shaped like squares.
+        // At 0 degrees of rotation, this will be 0.5. At 45 degrees, it'll be 0.707 (half the square root of 2), etc.
+        const halfPixel = (Math.abs(this._rotationMatrix[0]) + Math.abs(this._rotationMatrix[1])) * 0.5 * pixelScale;
+
+        for (let i = 0; i < points.length; i++) {
+            const x = points[i][0];
+            const y = points[i][1];
+            if ((x - halfPixel) < rect.left) rect.left = x - halfPixel;
+            if ((x + halfPixel) > rect.right) rect.right = x + halfPixel;
+            if ((y + halfPixel) > rect.top) rect.top = y + halfPixel;
+            if ((y - halfPixel) < rect.bottom) rect.bottom = y - halfPixel;
+        }
+    }
+
+    /**
      * Get the precise bounds for a Drawable.
      * This function applies the transform matrix to the known convex hull,
      * and then finds the minimum box along the axes.
@@ -522,7 +556,7 @@ class Drawable {
         const transformedHullPoints = this._getTransformedHullPoints();
         // Search through transformed points to generate box on axes.
         result = result || new Rectangle();
-        result.initFromPointsAABB(transformedHullPoints);
+        this._initRectangleFromConvexHullPoints(result, transformedHullPoints);
         return result;
     }
 
@@ -546,7 +580,7 @@ class Drawable {
         const filteredHullPoints = transformedHullPoints.filter(p => p[1] > maxY - slice);
         // Search through filtered points to generate box on axes.
         result = result || new Rectangle();
-        result.initFromPointsAABB(filteredHullPoints);
+        this._initRectangleFromConvexHullPoints(result, filteredHullPoints);
         return result;
     }
 
@@ -597,16 +631,13 @@ class Drawable {
         }
 
         const projection = twgl.m4.ortho(-1, 1, -1, 1, -1, 1);
-        const skinSize = this.skin.size;
-        const halfXPixel = 1 / skinSize[0] / 2;
-        const halfYPixel = 1 / skinSize[1] / 2;
         const tm = twgl.m4.multiply(this._uniforms.u_modelMatrix, projection);
         for (let i = 0; i < this._convexHullPoints.length; i++) {
             const point = this._convexHullPoints[i];
             const dstPoint = this._transformedHullPoints[i];
 
-            dstPoint[0] = 0.5 + (-point[0] / skinSize[0]) - halfXPixel;
-            dstPoint[1] = (point[1] / skinSize[1]) - 0.5 + halfYPixel;
+            dstPoint[0] = 0.5 - point[0];
+            dstPoint[1] = point[1] - 0.5;
             twgl.m4.transformPoint(tm, dstPoint, dstPoint);
         }
 
@@ -666,6 +697,14 @@ class Drawable {
         this._skinScaleDirty = true;
         this.setConvexHullDirty();
         this.setTransformDirty();
+    }
+
+    /**
+     * Respond to an internal change in the current Skin's silhouette.
+     * @private
+     */
+    _silhouetteWasUpdated () {
+        this.setConvexHullDirty();
     }
 
     /**
