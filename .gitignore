@@ -8,6 +8,7 @@ npm-*
 # Testing
 /.nyc_output
 /coverage
+/test/integration/diff-tests/fails/*
 
 # IDEA
 /.idea

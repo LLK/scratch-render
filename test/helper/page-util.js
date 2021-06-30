@@ -52,3 +52,31 @@ window.initVM = render => {
 
     return vm;
 };
+
+window.renderCpu = render => {
+    const [width, height] = render.getNativeSize();
+    const cpuImageData = new ImageData(width, height);
+    cpuImageData.data.fill(255);
+    const drawBits = render._drawList
+        .reduce((acc, id) => {
+            const drawable = render._allDrawables[id];
+            if (drawable._visible && drawable.skin) {
+                drawable.updateCPURenderAttributes();
+                acc.push({id, drawable});
+            }
+
+            return acc;
+        }, [])
+        .reverse();
+
+    const color = new Uint8ClampedArray(3);
+    for (let x = -239; x <= 240; x++) {
+        for (let y = -180; y < 180; y++) {
+            render.constructor.sampleColor3b([x, y], drawBits, color);
+            const offset = (((179 - y) * 480) + 239 + x) * 4;
+            cpuImageData.data.set(color, offset);
+        }
+    }
+
+    return cpuImageData;
+};
