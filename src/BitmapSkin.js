@@ -18,8 +18,18 @@ class BitmapSkin extends Skin {
         /** @type {!RenderWebGL} */
         this._renderer = renderer;
 
-        /** @type {Array<int>} */
-        this._textureSize = [0, 0];
+        /**
+         * The "native" size, in terms of "stage pixels", of this skin.
+         * @type {Array<number>}
+         */
+        this.nativeSize = [0, 0];
+
+        /**
+         * The size of this skin's actual texture, aka the dimensions of the actual rendered
+         * quadrilateral at 1x scale, in "stage pixels".
+         * @type {Array<number>}
+         */
+        this.quadSize = this.nativeSize;
     }
 
     /**
@@ -31,13 +41,6 @@ class BitmapSkin extends Skin {
             this._texture = null;
         }
         super.dispose();
-    }
-
-    /**
-     * @return {Array<number>} the "native" size, in texels, of this skin.
-     */
-    get size () {
-        return [this._textureSize[0] / this._costumeResolution, this._textureSize[1] / this._costumeResolution];
     }
 
     /**
@@ -88,11 +91,15 @@ class BitmapSkin extends Skin {
 
         // Do these last in case any of the above throws an exception
         this._costumeResolution = costumeResolution || 2;
-        this._textureSize = BitmapSkin._getBitmapSize(bitmapData);
+        const [width, height] = BitmapSkin._getBitmapSize(bitmapData);
+        // Because we assigned this.quadSize to this.nativeSize, set this.nativeSize's items instead of reassigning the
+        // reference
+        this.nativeSize[0] = width / this._costumeResolution;
+        this.nativeSize[1] = height / this._costumeResolution;
 
-        if (typeof rotationCenter === 'undefined') rotationCenter = this.calculateRotationCenter();
-        this._rotationCenter[0] = rotationCenter[0];
-        this._rotationCenter[1] = rotationCenter[1];
+        if (typeof rotationCenter === 'undefined') rotationCenter = this._calculateRotationCenter();
+        this._nativeRotationCenter[0] = rotationCenter[0];
+        this._nativeRotationCenter[1] = rotationCenter[1];
 
         this.emit(Skin.Events.WasAltered);
     }

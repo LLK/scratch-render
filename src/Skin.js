@@ -18,7 +18,23 @@ class Skin extends EventEmitter {
         this._id = id;
 
         /** @type {Vec3} */
-        this._rotationCenter = twgl.v3.create(0, 0);
+        this._nativeRotationCenter = twgl.v3.create(0, 0);
+
+        /**
+         * The "native" size, in terms of "stage pixels", of this skin.
+         * @member nativeSize
+         * @abstract
+         * @type {Array<number>}
+         */
+
+        /**
+         * The size of this skin's actual texture, aka the dimensions of the actual rendered
+         * quadrilateral at 1x scale, in "stage pixels". To properly handle positioning of vector sprites' viewboxes,
+         * some "slack space" is added to this size, but not to the nativeSize.
+         * @member quadSize
+         * @abstract
+         * @type {Array<number>}
+         */
 
         /** @type {WebGLTexture} */
         this._texture = null;
@@ -35,6 +51,17 @@ class Skin extends EventEmitter {
              * @type {Array<number>}
              */
             u_skinSize: [0, 0],
+
+            /**
+             * The "native" bounds of this skin that will be used by distortion effects, as fractions of its
+             * "quadrilateral" bounds. This is important for ensuring that distortion effects appear consistent no
+             * matter how much "slack space" we add to our quadSize.
+             * These range from 0 to 1 to represent "all the way to the top/left of the quadrilateral bounds" to
+             * "all the way to the bottom/right of the quadrilateral bounds".
+             * X and Y components are top left corner, Z and W components are bottom right.
+             * @type {Array<number>}
+             */
+            u_logicalBounds: [0, 0, 1, 1],
 
             /**
              * The actual WebGL texture object for the skin.
@@ -67,18 +94,18 @@ class Skin extends EventEmitter {
     }
 
     /**
-     * @returns {Vec3} the origin, in object space, about which this Skin should rotate.
+     * @returns {twgl.v3} the origin, in object space, about which this Skin's "native size" bounds should rotate.
      */
-    get rotationCenter () {
-        return this._rotationCenter;
+    get nativeRotationCenter () {
+        return this._nativeRotationCenter;
     }
 
     /**
-     * @abstract
-     * @return {Array<number>} the "native" size, in texels, of this skin.
+     * @returns {twgl.v3} the origin, in object space, about which this Skin's "quadrilateral size" bounds should
+     * rotate. By default, this is the same as the native rotation center.
      */
-    get size () {
-        return [0, 0];
+    get quadRotationCenter () {
+        return this._nativeRotationCenter;
     }
 
     /**
@@ -98,8 +125,8 @@ class Skin extends EventEmitter {
      * Get the center of the current bounding box
      * @return {Array<number>} the center of the current bounding box
      */
-    calculateRotationCenter () {
-        return [this.size[0] / 2, this.size[1] / 2];
+    _calculateRotationCenter () {
+        return [this.nativeSize[0] / 2, this.nativeSize[1] / 2];
     }
 
     /**
@@ -129,7 +156,7 @@ class Skin extends EventEmitter {
      */
     getUniforms (scale) {
         this._uniforms.u_skin = this.getTexture(scale);
-        this._uniforms.u_skinSize = this.size;
+        this._uniforms.u_skinSize = this.nativeSize;
         return this._uniforms;
     }
 
@@ -185,11 +212,24 @@ class Skin extends EventEmitter {
             this._emptyImageTexture = twgl.createTexture(gl, textureOptions);
         }
 
-        this._rotationCenter[0] = 0;
-        this._rotationCenter[1] = 0;
+        this._nativeRotationCenter[0] = 0;
+        this._nativeRotationCenter[1] = 0;
 
         this._silhouette.update(this._emptyImageData);
         this.emit(Skin.Events.WasAltered);
+    }
+
+    /**
+     * Is this (texture-space, in the range [0, 1]) point inside the skin's "logical bounds"?
+     * @param {twgl.v3} vec A texture coordinate.
+     * @return {boolean} True if the point is inside the skin's "logical bounds"
+     */
+    pointInsideLogicalBounds (vec) {
+        const logicalBounds = this._uniforms.u_logicalBounds;
+        return vec[0] >= logicalBounds[0] &&
+            vec[0] <= logicalBounds[2] &&
+            vec[1] >= logicalBounds[1] &&
+            vec[1] <= logicalBounds[3];
     }
 
     /**

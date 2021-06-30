@@ -8,11 +8,12 @@ const MAX_TEXTURE_DIMENSION = 2048;
 
 /**
  * All scaled renderings of the SVG are stored in an array. The 1.0 scale of
- * the SVG is stored at the 8th index. The smallest possible 1 / 256 scale
+ * the SVG is stored at the 3rd index. The smallest possible 1 / 8 scale
  * rendering is stored at the 0th index.
  * @const {number}
  */
-const INDEX_OFFSET = 8;
+const INDEX_OFFSET = 3;
+const MIN_TEXTURE_SCALE = 1 / (1 << INDEX_OFFSET);
 
 class SVGSkin extends Skin {
     /**
@@ -34,9 +35,6 @@ class SVGSkin extends Skin {
         /** @type {boolean} */
         this._svgImageLoaded = false;
 
-        /** @type {Array<number>} */
-        this._size = [0, 0];
-
         /** @type {HTMLCanvasElement} */
         this._canvas = document.createElement('canvas');
 
@@ -45,6 +43,22 @@ class SVGSkin extends Skin {
 
         /** @type {Array<WebGLTexture>} */
         this._scaledMIPs = [];
+
+        /**
+         * The "native" size, in terms of "stage pixels", of this skin.
+         * @type {Array<number>}
+         */
+        this.nativeSize = [0, 0];
+
+        /**
+         * The size of this skin's actual texture, aka the dimensions of the actual rendered
+         * quadrilateral at 1x scale, in "stage pixels". To properly handle positioning of vector sprites' viewboxes,
+         * some "slack space" is added to this size, but not to the nativeSize.
+         * @type {Array<number>} */
+        this.quadSize = [0, 0];
+
+        /** @type {Array<number>} */
+        this._quadRotationCenter = [0, 0];
 
         /** @type {number} */
         this._largestMIPScale = 0;
@@ -64,11 +78,8 @@ class SVGSkin extends Skin {
         super.dispose();
     }
 
-    /**
-     * @return {Array<number>} the natural size, in Scratch units, of this skin.
-     */
-    get size () {
-        return [this._size[0], this._size[1]];
+    get quadRotationCenter () {
+        return this._quadRotationCenter;
     }
 
     useNearest (scale, drawable) {
@@ -106,19 +117,9 @@ class SVGSkin extends Skin {
      * @return {SVGMIP} An object that handles creating and updating SVG textures.
      */
     createMIP (scale) {
-        const [width, height] = this._size;
+        const [width, height] = this.quadSize;
         this._canvas.width = width * scale;
         this._canvas.height = height * scale;
-        if (
-            this._canvas.width <= 0 ||
-            this._canvas.height <= 0 ||
-            // Even if the canvas at the current scale has a nonzero size, the image's dimensions are floored
-            // pre-scaling; e.g. if an image has a width of 0.4 and is being rendered at 3x scale, the canvas will have
-            // a width of 1, but the image's width will be rounded down to 0 on some browsers (Firefox) prior to being
-            // drawn at that scale, resulting in an IndexSizeError if we attempt to draw it.
-            this._svgImage.naturalWidth <= 0 ||
-            this._svgImage.naturalHeight <= 0
-        ) return super.getTexture();
         this._context.clearRect(0, 0, this._canvas.width, this._canvas.height);
         this._context.setTransform(scale, 0, 0, scale, 0, 0);
         this._context.drawImage(this._svgImage, 0, 0);
@@ -185,6 +186,85 @@ class SVGSkin extends Skin {
     }
 
     /**
+     * Set the loaded SVG's viewBox and this renderer's viewOffset for proper subpixel positioning.
+     * @param {SVGSVGElement} svgTag The SVG element to adjust
+     */
+    _setSubpixelViewbox (svgTag) {
+        const {x, y, width, height} = svgTag.viewBox.baseVal;
+        const rotationCenter = this._nativeRotationCenter;
+
+        // The preserveAspectRatio attribute has all sorts of weird effects on the viewBox if enabled.
+        svgTag.setAttribute('preserveAspectRatio', 'none');
+
+        // Multiplied by the minimum drawing scale.
+        const center = [
+            (
+                rotationCenter[0]
+                // Compensate for viewbox offset.
+                // See https://github.com/LLK/scratch-render/pull/90.
+                // eslint-disable-next-line operator-linebreak
+                - x
+            ) * MIN_TEXTURE_SCALE,
+
+            (rotationCenter[1] - y) * MIN_TEXTURE_SCALE
+        ];
+
+        // Take the fractional part of the scaled rotation center.
+        // We will translate the viewbox by this amount later for proper subpixel positioning.
+        const centerFrac = [
+            (center[0] % 1),
+            (center[1] % 1)
+        ];
+
+        // Scale the viewbox dimensions by the minimum scale, add the offset, then take the ceiling
+        // to get the rendered size (scaled by MIN_TEXTURE_SCALE).
+        const scaledSize = [
+            Math.ceil((width * MIN_TEXTURE_SCALE) + (1 - centerFrac[0])),
+            Math.ceil((height * MIN_TEXTURE_SCALE) + (1 - centerFrac[1]))
+        ];
+
+        // Scale back up to the SVG size.
+        const adjustedSize = [
+            scaledSize[0] / MIN_TEXTURE_SCALE,
+            scaledSize[1] / MIN_TEXTURE_SCALE
+        ];
+
+        this.quadSize = adjustedSize;
+
+        const xOffset = ((1 - centerFrac[0]) / MIN_TEXTURE_SCALE);
+        const yOffset = ((1 - centerFrac[1]) / MIN_TEXTURE_SCALE);
+
+        this._quadRotationCenter = [
+            (center[0] / MIN_TEXTURE_SCALE) + xOffset,
+            (center[1] / MIN_TEXTURE_SCALE) + yOffset
+        ];
+
+        // Set "logical bounds" as fractions of the adjusted bounding box size
+        /** @see Skin.logicalBounds */
+        this._uniforms.u_logicalBounds[0] = xOffset / adjustedSize[0];
+        this._uniforms.u_logicalBounds[1] = yOffset / adjustedSize[1];
+        this._uniforms.u_logicalBounds[2] = (width + xOffset) / adjustedSize[0];
+        this._uniforms.u_logicalBounds[3] = (height + yOffset) / adjustedSize[1];
+
+        // Adjust the SVG tag's viewbox to match the texture dimensions and offset.
+        // This will ensure that the SVG is rendered at the proper sub-pixel position,
+        // and with integer dimensions at power-of-two sizes down to MIN_TEXTURE_SCALE.
+        svgTag.setAttribute('viewBox',
+            `${
+                x - xOffset
+            } ${
+                y - yOffset
+            } ${
+                adjustedSize[0]
+            } ${
+                adjustedSize[1]
+            }`);
+
+        svgTag.setAttribute('width', adjustedSize[0]);
+        svgTag.setAttribute('height', adjustedSize[1]);
+    }
+
+    /**
      * Set the contents of this skin to a snapshot of the provided SVG data.
      * @param {string} svgData - new SVG to use.
      * @param {Array<number>} [rotationCenter] - Optional rotation center for the SVG. If not supplied, it will be
@@ -193,20 +273,28 @@ class SVGSkin extends Skin {
      */
     setSVG (svgData, rotationCenter) {
         const svgTag = loadSvgString(svgData);
+
+        // Handle zero-size skins. _setSubpixelViewbox will handle really really small skins whose dimensions would
+        // otherwise be rounded down to 0.
+        const {width, height} = svgTag.viewBox.baseVal;
+        if (width === 0 || height === 0) {
+            super.setEmptyImageData();
+            this._quadRotationCenter[0] = 0;
+            this._quadRotationCenter[1] = 0;
+            return;
+        }
+        this.nativeSize[0] = width;
+        this.nativeSize[1] = height;
+        if (typeof rotationCenter === 'undefined') rotationCenter = this._calculateRotationCenter();
+        this._nativeRotationCenter[0] = rotationCenter[0];
+        this._nativeRotationCenter[1] = rotationCenter[1];
+
+        this._setSubpixelViewbox(svgTag);
         const svgText = serializeSvgToString(svgTag, true /* shouldInjectFonts */);
         this._svgImageLoaded = false;
 
         // If there is another load already in progress, replace the old onload to effectively cancel the old load
         this._svgImage.onload = () => {
-            const {x, y, width, height} = svgTag.viewBox.baseVal;
-            this._size[0] = width;
-            this._size[1] = height;
-
-            if (width === 0 || height === 0) {
-                super.setEmptyImageData();
-                return;
-            }
-
             const maxDimension = Math.ceil(Math.max(width, height));
             let testScale = 2;
             for (testScale; maxDimension * testScale <= MAX_TEXTURE_DIMENSION; testScale *= 2) {
@@ -214,15 +302,10 @@ class SVGSkin extends Skin {
             }
 
             this.resetMIPs();
-
-            if (typeof rotationCenter === 'undefined') rotationCenter = this.calculateRotationCenter();
-            // Compensate for viewbox offset.
-            // See https://github.com/LLK/scratch-render/pull/90.
-            this._rotationCenter[0] = rotationCenter[0] - x;
-            this._rotationCenter[1] = rotationCenter[1] - y;
-
             this._svgImageLoaded = true;
-
+            // While we're setting the size and rotation center before the image is loaded, this doesn't cause the skin
+            // to appear in the wrong place/with the wrong size for a few frames while the new image is loading, because
+            // we don't emit this event, telling drawables using this skin to update, until the image is loaded.
             this.emit(Skin.Events.WasAltered);
         };
 

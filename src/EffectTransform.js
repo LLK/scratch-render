@@ -130,13 +130,20 @@ class EffectTransform {
 
         const effects = drawable.enabledEffects;
         const uniforms = drawable.getUniforms();
+        const skinUniforms = drawable.skin.getUniforms();
+
+        // v_logicalCoord = (a_texCoord - u_logicalBounds.xy) / (u_logicalBounds.zw - u_logicalBounds.xy);
+        dst[0] = (dst[0] - skinUniforms.u_logicalBounds[0]) /
+            (skinUniforms.u_logicalBounds[2] - skinUniforms.u_logicalBounds[0]);
+        dst[1] = (dst[1] - skinUniforms.u_logicalBounds[1]) /
+            (skinUniforms.u_logicalBounds[3] - skinUniforms.u_logicalBounds[1]);
+
         if ((effects & ShaderManager.EFFECT_INFO.mosaic.mask) !== 0) {
             // texcoord0 = fract(u_mosaic * texcoord0);
             dst[0] = uniforms.u_mosaic * dst[0] % 1;
             dst[1] = uniforms.u_mosaic * dst[1] % 1;
         }
         if ((effects & ShaderManager.EFFECT_INFO.pixelate.mask) !== 0) {
-            const skinUniforms = drawable.skin.getUniforms();
             // vec2 pixelTexelSize = u_skinSize / u_pixelate;
             const texelX = skinUniforms.u_skinSize[0] / uniforms.u_pixelate;
             const texelY = skinUniforms.u_skinSize[1] / uniforms.u_pixelate;
@@ -189,6 +196,13 @@ class EffectTransform {
             dst[0] = CENTER_X + (r * unitX * CENTER_X);
             dst[1] = CENTER_Y + (r * unitY * CENTER_Y);
         }
+
+        // After doing all distortions in "logical texture space", convert back to actual texture space
+        // texcoord0 = (texcoord0 * (u_logicalBounds.zw - u_logicalBounds.xy)) + u_logicalBounds.xy;
+        dst[0] = (dst[0] * (skinUniforms.u_logicalBounds[2] - skinUniforms.u_logicalBounds[0])) +
+            skinUniforms.u_logicalBounds[0];
+        dst[1] = (dst[1] * (skinUniforms.u_logicalBounds[3] - skinUniforms.u_logicalBounds[1])) +
+            skinUniforms.u_logicalBounds[1];
 
         return dst;
     }

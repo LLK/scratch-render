@@ -42,8 +42,18 @@ class TextBubbleSkin extends Skin {
         /** @type {HTMLCanvasElement} */
         this._canvas = document.createElement('canvas');
 
-        /** @type {Array<number>} */
-        this._size = [0, 0];
+        /**
+         * The "native" size, in terms of "stage pixels", of this skin.
+         * @type {Array<number>}
+         */
+        this.nativeSize = [0, 0];
+
+        /**
+         * The size of this skin's actual texture, aka the dimensions of the actual rendered
+         * quadrilateral at 1x scale, in "stage pixels".
+         * @type {Array<number>}
+         */
+        this.quadSize = this.nativeSize;
 
         /** @type {number} */
         this._renderedScale = 0;
@@ -59,9 +69,6 @@ class TextBubbleSkin extends Skin {
 
         /** @type {boolean} */
         this._pointsLeft = false;
-
-        /** @type {boolean} */
-        this._textDirty = true;
 
         /** @type {boolean} */
         this._textureDirty = true;
@@ -85,16 +92,6 @@ class TextBubbleSkin extends Skin {
     }
 
     /**
-     * @return {Array<number>} the dimensions, in Scratch units, of this skin.
-     */
-    get size () {
-        if (this._textDirty) {
-            this._reflowLines();
-        }
-        return this._size;
-    }
-
-    /**
      * Set parameters for this text bubble.
      * @param {!string} type - either "say" or "think".
      * @param {!string} text - the text for the bubble.
@@ -105,7 +102,7 @@ class TextBubbleSkin extends Skin {
         this._bubbleType = type;
         this._pointsLeft = pointsLeft;
 
-        this._textDirty = true;
+        this._reflowLines();
         this._textureDirty = true;
         this.emit(Skin.Events.WasAltered);
     }
@@ -136,10 +133,10 @@ class TextBubbleSkin extends Skin {
         this._textAreaSize.width = paddedWidth;
         this._textAreaSize.height = paddedHeight;
 
-        this._size[0] = paddedWidth + BubbleStyle.STROKE_WIDTH;
-        this._size[1] = paddedHeight + BubbleStyle.STROKE_WIDTH + BubbleStyle.TAIL_HEIGHT;
-
-        this._textDirty = false;
+        // Because we assigned this.quadSize to this.nativeSize, set this.nativeSize's items instead of reassigning the
+        // reference
+        this.nativeSize[0] = paddedWidth + BubbleStyle.STROKE_WIDTH;
+        this.nativeSize[1] = paddedHeight + BubbleStyle.STROKE_WIDTH + BubbleStyle.TAIL_HEIGHT;
     }
 
     /**
@@ -149,17 +146,13 @@ class TextBubbleSkin extends Skin {
     _renderTextBubble (scale) {
         const ctx = this._canvas.getContext('2d');
 
-        if (this._textDirty) {
-            this._reflowLines();
-        }
-
         // Calculate the canvas-space sizes of the padded text area and full text bubble
         const paddedWidth = this._textAreaSize.width;
         const paddedHeight = this._textAreaSize.height;
 
         // Resize the canvas to the correct screen-space size
-        this._canvas.width = Math.ceil(this._size[0] * scale);
-        this._canvas.height = Math.ceil(this._size[1] * scale);
+        this._canvas.width = Math.ceil(this.nativeSize[0] * scale);
+        this._canvas.height = Math.ceil(this.nativeSize[1] * scale);
         this._restyleCanvas();
 
         // Reset the transform before clearing to ensure 100% clearage

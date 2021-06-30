@@ -14,11 +14,20 @@ uniform vec4 u_penPoints;
 const float epsilon = 1e-3;
 #endif
 
+#if defined(ENABLE_fisheye) || defined(ENABLE_whirl) || defined(ENABLE_pixelate) || defined(ENABLE_mosaic)
+#define DISTORTION_EFFECTS_ENABLED
+#endif
+
 #if !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
 uniform mat4 u_projectionMatrix;
 uniform mat4 u_modelMatrix;
-attribute vec2 a_texCoord;
+
+#ifdef DISTORTION_EFFECTS_ENABLED
+uniform vec4 u_logicalBounds;
 #endif
+
+attribute vec2 a_texCoord;
+#endif // !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
 
 attribute vec2 a_position;
 
@@ -68,8 +77,18 @@ void main() {
 	gl_Position = vec4(position, 0, 1);
 	#elif defined(DRAW_MODE_background)
 	gl_Position = vec4(a_position * 2.0, 0, 1);
-	#else
+	#else // drawing a sprite
 	gl_Position = u_projectionMatrix * u_modelMatrix * vec4(a_position, 0, 1);
+
+	#ifdef DISTORTION_EFFECTS_ENABLED
+	// To properly render subpixel-positioned SVG viewboxes, there's some "slack space" around the edges of the texture.
+	// The "logical coordinates" exclude this slack space, starting at the top left of the SVG's *content* and ending
+	// at the bottom right. Distortion effects are applied in this space so as to ensure their "center" is correct.
+	// After doing distortion effects, the fragment shader will undo this transformation before sampling the texture.
+	v_texCoord = (a_texCoord - u_logicalBounds.xy) / (u_logicalBounds.zw - u_logicalBounds.xy);
+	#else
 	v_texCoord = a_texCoord;
+	#endif // DISTORTION_EFFECTS_ENABLED
+
 	#endif
 }

@@ -5,18 +5,26 @@ class MockSkin extends Skin {
         this.dimensions = dimensions;
     }
 
-    get size () {
+    get nativeSize () {
+        return this.dimensions || [0, 0];
+    }
+
+    get quadSize () {
         return this.dimensions || [0, 0];
     }
 
     set rotationCenter (center) {
-        this._rotationCenter[0] = center[0];
-        this._rotationCenter[1] = center[1];
+        this._nativeRotationCenter[0] = center[0];
+        this._nativeRotationCenter[1] = center[1];
         this.emit(Skin.Events.WasAltered);
     }
 
-    get rotationCenter () {
-        return this._rotationCenter;
+    get nativeRotationCenter () {
+        return this._nativeRotationCenter;
+    }
+
+    get quadRotationCenter () {
+        return this._nativeRotationCenter;
     }
 }
 

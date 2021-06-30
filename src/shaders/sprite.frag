@@ -16,6 +16,10 @@ uniform vec3 u_colorMask;
 uniform float u_colorMaskTolerance;
 #endif // DRAW_MODE_colorMask
 
+#if defined(ENABLE_fisheye) || defined(ENABLE_whirl) || defined(ENABLE_pixelate) || defined(ENABLE_mosaic)
+#define DISTORTION_EFFECTS_ENABLED
+#endif
+
 #ifdef ENABLE_fisheye
 uniform float u_fisheye;
 #endif // ENABLE_fisheye
@@ -37,17 +41,23 @@ uniform float u_ghost;
 uniform vec4 u_lineColor;
 uniform float u_lineThickness;
 uniform float u_lineLength;
+varying vec2 v_texCoord;
 #endif // DRAW_MODE_line
 
 #ifdef DRAW_MODE_background
 uniform vec4 u_backgroundColor;
 #endif // DRAW_MODE_background
 
-uniform sampler2D u_skin;
+#if !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
 
-#ifndef DRAW_MODE_background
+#ifdef DISTORTION_EFFECTS_ENABLED
+uniform vec4 u_logicalBounds;
+#endif
+
 varying vec2 v_texCoord;
 #endif
+
+uniform sampler2D u_skin;
 
 // Add this to divisors to prevent division by 0, which results in NaNs propagating through calculations.
 // Smaller values can cause problems on some mobile devices.
@@ -159,7 +169,24 @@ void main()
 	}
 	#endif // ENABLE_fisheye
 
+	#ifdef DISTORTION_EFFECTS_ENABLED
+	// If distortion effects are enabled, the vertex shader will convert texture coordinates to "logical bounds" space.
+	// (0, 0) will be the top left corner of the "logical bounds" and (1, 1) will be the bottom right corner.
+	// If so, convert back to actual texture space only after doing all distortions in "logical texture space".
+	texcoord0 = (texcoord0 * (u_logicalBounds.zw - u_logicalBounds.xy)) + u_logicalBounds.xy;
+	#endif
+
 	gl_FragColor = texture2D(u_skin, texcoord0);
+
+	#if defined(ENABLE_pixelate) || defined(ENABLE_mosaic)
+	// Ensure that the pixels don't extend outside the "logical bounds"
+	gl_FragColor *= float(
+		v_texCoord.x >= 0.0 &&
+		v_texCoord.y >= 0.0 &&
+		v_texCoord.x <= 1.0 &&
+		v_texCoord.y <= 1.0
+	);
+	#endif
 
 	#if defined(ENABLE_color) || defined(ENABLE_brightness)
 	// Divide premultiplied alpha values for proper color processing

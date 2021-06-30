@@ -47,8 +47,18 @@ class PenSkin extends Skin {
          */
         this._renderer = renderer;
 
-        /** @type {Array<number>} */
-        this._size = null;
+        /**
+         * The "native" size, in terms of "stage pixels", of this skin.
+         * @type {Array<number>}
+         */
+        this.nativeSize = [0, 0];
+
+        /**
+         * The size of this skin's actual texture, aka the dimensions of the actual rendered
+         * quadrilateral at 1x scale, in "stage pixels".
+         * @type {Array<number>}
+         */
+        this.quadSize = this.nativeSize;
 
         /** @type {WebGLFramebuffer} */
         this._framebuffer = null;
@@ -107,13 +117,6 @@ class PenSkin extends Skin {
         this._renderer.gl.deleteTexture(this._texture);
         this._texture = null;
         super.dispose();
-    }
-
-    /**
-     * @return {Array<number>} the "native" size, in texels, of this skin. [width, height]
-     */
-    get size () {
-        return this._size;
     }
 
     useNearest (scale) {
@@ -186,7 +189,7 @@ class PenSkin extends Skin {
 
         twgl.bindFramebufferInfo(gl, this._framebuffer);
 
-        gl.viewport(0, 0, this._size[0], this._size[1]);
+        gl.viewport(0, 0, this.nativeSize[0], this.nativeSize[1]);
 
         const currentShader = this._lineShader;
         gl.useProgram(currentShader.program);
@@ -194,7 +197,7 @@ class PenSkin extends Skin {
 
         const uniforms = {
             u_skin: this._texture,
-            u_stageSize: this._size
+            u_stageSize: this.nativeSize
         };
 
         twgl.setUniforms(currentShader, uniforms);
@@ -286,9 +289,13 @@ class PenSkin extends Skin {
     _setCanvasSize (canvasSize) {
         const [width, height] = canvasSize;
 
-        this._size = canvasSize;
-        this._rotationCenter[0] = width / 2;
-        this._rotationCenter[1] = height / 2;
+        // Because we assigned this.quadSize to this.nativeSize, set this.nativeSize's items instead of reassigning the
+        // reference
+        this.nativeSize[0] = width;
+        this.nativeSize[1] = height;
+
+        this._nativeRotationCenter[0] = width / 2;
+        this._nativeRotationCenter[1] = height / 2;
 
         const gl = this._renderer.gl;
 
@@ -335,7 +342,7 @@ class PenSkin extends Skin {
             const gl = this._renderer.gl;
             gl.readPixels(
                 0, 0,
-                this._size[0], this._size[1],
+                this.nativeSize[0], this.nativeSize[1],
                 gl.RGBA, gl.UNSIGNED_BYTE, this._silhouettePixels
             );
 

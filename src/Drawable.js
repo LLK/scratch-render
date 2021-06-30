@@ -43,14 +43,6 @@ const getLocalPosition = (drawable, vec) => {
     // TODO: Check if this can be removed after render pull 479 is merged
     if (Math.abs(localPosition[0]) < FLOATING_POINT_ERROR_ALLOWANCE) localPosition[0] = 0;
     if (Math.abs(localPosition[1]) < FLOATING_POINT_ERROR_ALLOWANCE) localPosition[1] = 0;
-    // Apply texture effect transform if the localPosition is within the drawable's space,
-    // and any effects are currently active.
-    if (drawable.enabledEffects !== 0 &&
-        (localPosition[0] >= 0 && localPosition[0] < 1) &&
-        (localPosition[1] >= 0 && localPosition[1] < 1)) {
-
-        EffectTransform.transformPoint(drawable, localPosition, localPosition);
-    }
     return localPosition;
 };
 
@@ -108,6 +100,9 @@ class Drawable {
         this._inverseTransformDirty = true;
         this._visible = true;
 
+        this._aabbDirty = true;
+        this._aabb = new Rectangle();
+
         /** A bitmask identifying which effects are currently in use.
          * @readonly
          * @type {int} */
@@ -144,6 +139,7 @@ class Drawable {
         this._transformDirty = true;
         this._inverseTransformDirty = true;
         this._transformedHullDirty = true;
+        this._aabbDirty = true;
     }
 
     /**
@@ -339,8 +335,8 @@ class Drawable {
         if (this._rotationCenterDirty && this.skin !== null) {
             // twgl version of the following in function work.
             // let rotationAdjusted = twgl.v3.subtract(
-            //     this.skin.rotationCenter,
-            //     twgl.v3.divScalar(this.skin.size, 2, this._rotationAdjusted),
+            //     this.skin.quadRotationCenter,
+            //     twgl.v3.divScalar(this.skin.quadSize, 2, this._rotationAdjusted),
             //     this._rotationAdjusted
             // );
             // rotationAdjusted = twgl.v3.multiply(
@@ -355,8 +351,8 @@ class Drawable {
             // Locally assign rotationCenter and skinSize to keep from having
             // the Skin getter properties called twice while locally assigning
             // their components for readability.
-            const rotationCenter = this.skin.rotationCenter;
-            const skinSize = this.skin.size;
+            const rotationCenter = this.skin.quadRotationCenter;
+            const skinSize = this.skin.quadSize;
             const center0 = rotationCenter[0];
             const center1 = rotationCenter[1];
             const skinSize0 = skinSize[0];
@@ -375,7 +371,7 @@ class Drawable {
         if (this._skinScaleDirty && this.skin !== null) {
             // twgl version of the following in function work.
             // const scaledSize = twgl.v3.divScalar(
-            //     twgl.v3.multiply(this.skin.size, this._scale),
+            //     twgl.v3.multiply(this.skin.quadSize, this._scale),
             //     100
             // );
             // // was NaN because the vectors have only 2 components.
@@ -383,7 +379,7 @@ class Drawable {
 
             // Locally assign skinSize to keep from having the Skin getter
             // properties called twice.
-            const skinSize = this.skin.size;
+            const skinSize = this.skin.quadSize;
             const scaledSize = this._skinScale;
             scaledSize[0] = skinSize[0] * this._scale[0] / 100;
             scaledSize[1] = skinSize[1] * this._scale[1] / 100;
@@ -497,11 +493,17 @@ class Drawable {
     }
 
     _isTouchingNearest (vec) {
-        return this.skin.isTouchingNearest(getLocalPosition(this, vec));
+        const localPosition = getLocalPosition(this, vec);
+        if (!this._skin.pointInsideLogicalBounds(localPosition)) return false;
+        if (this.enabledEffects !== 0) EffectTransform.transformPoint(this, localPosition, localPosition);
+        return this._skin._silhouette.isTouchingNearest(localPosition);
     }
 
     _isTouchingLinear (vec) {
-        return this.skin.isTouchingLinear(getLocalPosition(this, vec));
+        const localPosition = getLocalPosition(this, vec);
+        if (!this._skin.pointInsideLogicalBounds(localPosition)) return false;
+        if (this.enabledEffects !== 0) EffectTransform.transformPoint(this, localPosition, localPosition);
+        return this._skin._silhouette.isTouchingLinear(localPosition);
     }
 
     /**
@@ -552,7 +554,7 @@ class Drawable {
 
     /**
      * Get the rough axis-aligned bounding box for the Drawable.
-     * Calculated by transforming the skin's bounds.
+     * Calculated by transforming the skin's "native" bounds.
      * Note that this is less precise than the box returned by `getBounds`,
      * which is tightly snapped to account for a Drawable's transparent regions.
      * `getAABB` returns a much less accurate bounding box, but will be much
@@ -561,12 +563,66 @@ class Drawable {
      * @return {!Rectangle} Rough axis-aligned bounding box for Drawable.
      */
     getAABB (result) {
-        if (this._transformDirty) {
-            this._calculateTransform();
+        if (this._aabbDirty) {
+            if (this._transformDirty) {
+                this._calculateTransform();
+            }
+
+            if (this.skin) {
+                // This drawable's transform matrix is calculated to use the rotation center and dimensions of the
+                // rendered quadrilateral, which sometimes includes extra "slack space" pixels around the edges.
+                // We don't want to include that slack space here, so we cannot calculate the AABB from the matrix,
+                // and must use the "native" skin size and rotation center.
+
+                // Pull out rotation sine/cosine from matrix
+                const [cos, sin] = this._rotationMatrix;
+
+                const [nativeSizeX, nativeSizeY] = this.skin.nativeSize;
+                const scaleX = this._scale[0] / 100;
+                const scaleY = this._scale[1] / 100;
+                // Unrotated top right corner of the bounding box, relative to its midpoint
+                // (not the skin's rotation center!)
+                const origRight = nativeSizeX * 0.5 * scaleX;
+                const origTop = nativeSizeY * 0.5 * scaleY;
+
+                // Rotate the top right corner around the bounding box's midpoint, and use this to obtain the top and
+                // right edges.
+                const topEdge = Math.abs(origRight * sin) + Math.abs(origTop * cos);
+                const rightEdge = Math.abs(origRight * cos) + Math.abs(origTop * sin);
+
+                // Calculate the offset from the bounding box's midpoint to the skin's rotation center.
+                const [centerX, centerY] = this.skin.nativeRotationCenter;
+                const adjustedX = origRight - (centerX * scaleX);
+                const adjustedY = origTop - (centerY * scaleY);
+
+                // Use that offset to rotate the bounding box's midpoint about the skin's rotation center, then add that
+                // to the drawable's position to obtain the final translation.
+                const offsetX = -(sin * adjustedY) - (cos * adjustedX) + this._position[0];
+                const offsetY = (cos * adjustedY) - (sin * adjustedX) + this._position[1];
+
+                this._aabb.initFromBounds(
+                    -rightEdge + offsetX,
+                    rightEdge + offsetX,
+                    -topEdge + offsetY,
+                    topEdge + offsetY
+                );
+            } else {
+                // TODO: we should probably return null in this case, but most (all?) Rectangle-returning methods always
+                // return Rectangles, even when it may not make sense to do so (e.g. when the skin is missing). Let's
+                // match the other methods for now, and do what they do.
+                this._aabb.initFromBounds(0, 0, 0, 0);
+            }
+
+            this._aabbDirty = false;
         }
-        const tm = this._uniforms.u_modelMatrix;
+
         result = result || new Rectangle();
-        result.initFromModelMatrix(tm);
+        result.initFromBounds(
+            this._aabb.left,
+            this._aabb.right,
+            this._aabb.bottom,
+            this._aabb.top
+        );
         return result;
     }
 
@@ -597,7 +653,7 @@ class Drawable {
         }
 
         const projection = twgl.m4.ortho(-1, 1, -1, 1, -1, 1);
-        const skinSize = this.skin.size;
+        const skinSize = this.skin.quadSize;
         const halfXPixel = 1 / skinSize[0] / 2;
         const halfYPixel = 1 / skinSize[1] / 2;
         const tm = twgl.m4.multiply(this._uniforms.u_modelMatrix, projection);
@@ -711,8 +767,7 @@ class Drawable {
      */
     static sampleColor4b (vec, drawable, dst, effectMask) {
         const localPosition = getLocalPosition(drawable, vec);
-        if (localPosition[0] < 0 || localPosition[1] < 0 ||
-            localPosition[0] > 1 || localPosition[1] > 1) {
+        if (!drawable._skin.pointInsideLogicalBounds(localPosition)) {
             dst[0] = 0;
             dst[1] = 0;
             dst[2] = 0;
@@ -720,11 +775,14 @@ class Drawable {
             return dst;
         }
 
+        // Apply texture effect transform if any effects are currently active.
+        if (drawable.enabledEffects !== 0) EffectTransform.transformPoint(drawable, localPosition, localPosition);
+
         const textColor =
         // commenting out to only use nearest for now
-        // drawable.skin.useNearest(drawable._scale, drawable) ?
-             drawable.skin._silhouette.colorAtNearest(localPosition, dst);
-        // : drawable.skin._silhouette.colorAtLinear(localPosition, dst);
+        // drawable._skin.useNearest(drawable._scale, drawable) ?
+             drawable._skin._silhouette.colorAtNearest(localPosition, dst);
+        // : drawable._skin._silhouette.colorAtLinear(localPosition, dst);
 
         if (drawable.enabledEffects === 0) return textColor;
         return EffectTransform.transformColor(drawable, textColor, effectMask);
