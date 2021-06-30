@@ -304,8 +304,7 @@ class RenderWebGL extends EventEmitter {
         this._yBottom = yBottom;
         this._yTop = yTop;
 
-        // swap yBottom & yTop to fit Scratch convention of +y=up
-        this._projection = twgl.m4.ortho(xLeft, xRight, yBottom, yTop, -1, 1);
+        this._projection = this._makeOrthoProjection(xLeft, xRight, yBottom, yTop);
 
         this._setNativeSize(Math.abs(xRight - xLeft), Math.abs(yBottom - yTop));
     }
@@ -327,6 +326,20 @@ class RenderWebGL extends EventEmitter {
     _setNativeSize (width, height) {
         this._nativeSize = [width, height];
         this.emit(RenderConstants.Events.NativeSizeChanged, {newSize: this._nativeSize});
+    }
+
+    /**
+     * Build a projection matrix for Scratch coordinates. For example, `_makeOrthoProjection(-240,240,-180,180)` will
+     * mean the lower-left pixel is at (-240,-179) and the upper right pixel is at (239,180), matching Scratch 2.0.
+     * @param {number} xLeft - the left edge of the projection volume (-240)
+     * @param {number} xRight - the right edge of the projection volume (240)
+     * @param {number} yBottom - the bottom edge of the projection volume (-180)
+     * @param {number} yTop - the top edge of the projection volume (180)
+     * @returns {module:twgl/m4.Mat4} - a projection matrix containing [xLeft,xRight) and (yBottom,yTop]
+     */
+    _makeOrthoProjection (xLeft, xRight, yBottom, yTop) {
+        // swap yBottom & yTop to fit Scratch convention of +y=up
+        return twgl.m4.ortho(xLeft, xRight, yBottom, yTop, -1, 1);
     }
 
     /**
@@ -573,7 +586,7 @@ class RenderWebGL extends EventEmitter {
      * Returns the position of the given drawableID in the draw list. This is
      * the absolute position irrespective of layer group.
      * @param {number} drawableID The drawable ID to find.
-     * @return {number} The postion of the given drawable ID.
+     * @return {number} The position of the given drawable ID.
      */
     getDrawableOrder (drawableID) {
         return this._drawList.indexOf(drawableID);
@@ -587,7 +600,7 @@ class RenderWebGL extends EventEmitter {
      * "go to back": setDrawableOrder(id, 1); (assuming stage at 0).
      * "go to front": setDrawableOrder(id, Infinity);
      * @param {int} drawableID ID of Drawable to reorder.
-     * @param {number} order New absolute order or relative order adjusment.
+     * @param {number} order New absolute order or relative order adjustment.
      * @param {string=} group Name of layer group drawable belongs to.
      * Reordering will not take place if drawable cannot be found within the bounds
      * of the layer group.
@@ -761,7 +774,7 @@ class RenderWebGL extends EventEmitter {
 
     /**
      * Check if a particular Drawable is touching a particular color.
-     * Unlike touching drawable, if the "tester" is invisble, we will still test.
+     * Unlike touching drawable, if the "tester" is invisible, we will still test.
      * @param {int} drawableID The ID of the Drawable to check.
      * @param {Array<int>} color3b Test if the Drawable is touching this color.
      * @param {Array<int>} [mask3b] Optionally mask the check to this part of Drawable.
@@ -795,7 +808,7 @@ class RenderWebGL extends EventEmitter {
 
         // if there are just too many pixels to CPU render efficiently, we need to let readPixels happen
         if (bounds.width * bounds.height * (candidates.length + 1) >= maxPixelsForCPU) {
-            this._isTouchingColorGpuStart(drawableID, candidates.map(({id}) => id).reverse(), bounds, color3b, mask3b);
+            this._isTouchingColorGpuStart(drawableID, candidates.map(({id}) => id), bounds, color3b, mask3b);
         }
 
         const drawable = this._allDrawables[drawableID];
@@ -809,13 +822,13 @@ class RenderWebGL extends EventEmitter {
         const effectMask = ~ShaderManager.EFFECT_INFO.ghost.mask;
 
         // Scratch Space - +y is top
-        for (let y = bounds.bottom; y <= bounds.top; y++) {
-            if (bounds.width * (y - bounds.bottom) * (candidates.length + 1) >= maxPixelsForCPU) {
-                return this._isTouchingColorGpuFin(bounds, color3b, y - bounds.bottom);
+        for (let y = 0; y < bounds.height; ++y) {
+            if (bounds.width * y * (candidates.length + 1) >= maxPixelsForCPU) {
+                return this._isTouchingColorGpuFin(bounds, color3b, y);
             }
-            for (let x = bounds.left; x <= bounds.right; x++) {
-                point[1] = y;
-                point[0] = x;
+            for (let x = 0; x < bounds.width; ++x) {
+                point[0] = bounds.left + x; // bounds.left <= point[0] < bounds.right
+                point[1] = bounds.top - y; // bounds.bottom < point[1] <= bounds.top ("flipped")
                 // if we use a mask, check our sample color...
                 if (hasMask ?
                     maskMatches(Drawable.sampleColor4b(point, drawable, color, effectMask), mask3b) :
@@ -823,10 +836,10 @@ class RenderWebGL extends EventEmitter {
                     RenderWebGL.sampleColor3b(point, candidates, color);
                     if (debugCanvasContext) {
                         debugCanvasContext.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
-                        debugCanvasContext.fillRect(x - bounds.left, bounds.bottom - y, 1, 1);
+                        debugCanvasContext.fillRect(x, y, 1, 1);
                     }
                     // ...and the target color is drawn at this pixel
-                    if (colorMatches(color, color3b, 0)) {
+                    if (colorMatches(color3b, color, 0)) {
                         return true;
                     }
                 }
@@ -869,7 +882,7 @@ class RenderWebGL extends EventEmitter {
         // Limit size of viewport to the bounds around the target Drawable,
         // and create the projection matrix for the draw.
         gl.viewport(0, 0, bounds.width, bounds.height);
-        const projection = twgl.m4.ortho(bounds.left, bounds.right, bounds.top, bounds.bottom, -1, 1);
+        const projection = this._makeOrthoProjection(bounds.left, bounds.right, bounds.top, bounds.bottom);
 
         // Clear the query buffer to fully transparent. This will be the color of pixels that fail the stencil test.
         gl.clearColor(0, 0, 0, 0);
@@ -963,7 +976,7 @@ class RenderWebGL extends EventEmitter {
         const candidates = this._candidatesTouching(drawableID,
             // even if passed an invisible drawable, we will NEVER touch it!
             candidateIDs.filter(id => this._allDrawables[id]._visible));
-        // if we are invisble we don't touch anything.
+        // if we are invisible we don't touch anything.
         if (candidates.length === 0 || !this._allDrawables[drawableID]._visible) {
             return false;
         }
@@ -998,7 +1011,7 @@ class RenderWebGL extends EventEmitter {
 
     /**
      * Convert a client based x/y position on the canvas to a Scratch 3 world space
-     * Rectangle.  This creates recangles with a radius to cover selecting multiple
+     * Rectangle. This creates rectangles with a radius to cover selecting multiple
      * scratch pixels with touch / small render areas.
      *
      * @param {int} centerX The client x coordinate of the picking location.
@@ -1109,7 +1122,7 @@ class RenderWebGL extends EventEmitter {
             for (worldPos[0] = bounds.left; worldPos[0] <= bounds.right; worldPos[0]++) {
 
                 // Check candidates in the reverse order they would have been
-                // drawn. This will determine what candiate's silhouette pixel
+                // drawn. This will determine what candidate's silhouette pixel
                 // would have been drawn at the point.
                 for (let d = candidateIDs.length - 1; d >= 0; d--) {
                     const id = candidateIDs[d];
@@ -1202,12 +1215,11 @@ class RenderWebGL extends EventEmitter {
             // Limit size of viewport to the bounds around the target Drawable,
             // and create the projection matrix for the draw.
             gl.viewport(0, 0, clampedWidth, clampedHeight);
-            const projection = twgl.m4.ortho(
+            const projection = this._makeOrthoProjection(
                 scratchBounds.left,
                 scratchBounds.right,
                 scratchBounds.top,
-                scratchBounds.bottom,
-                -1, 1
+                scratchBounds.bottom
             );
 
             gl.clearColor(0, 0, 0, 0);
@@ -1278,7 +1290,7 @@ class RenderWebGL extends EventEmitter {
         const pickY = bounds.top - scratchY;
 
         gl.viewport(0, 0, bounds.width, bounds.height);
-        const projection = twgl.m4.ortho(bounds.left, bounds.right, bounds.top, bounds.bottom, -1, 1);
+        const projection = this._makeOrthoProjection(bounds.left, bounds.right, bounds.top, bounds.bottom);
 
         gl.clearColor(...this._backgroundColor4f);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1345,8 +1357,7 @@ class RenderWebGL extends EventEmitter {
     }
 
     /**
-     * Filter a list of candidates for a touching query into only those that
-     * could possibly intersect the given bounds.
+     * Filter a list of candidates for a touching query into only those that could possibly intersect the given bounds.
      * @param {int} drawableID - ID for drawable of query.
      * @param {Array<int>} candidateIDs - Candidates for touching query.
      * @return {?Array< {id, drawable, intersection} >} Filtered candidates with useful data.
@@ -1357,8 +1368,7 @@ class RenderWebGL extends EventEmitter {
         if (bounds === null) {
             return result;
         }
-        // iterate through the drawables list BACKWARDS - we want the top most item to be the first we check
-        for (let index = candidateIDs.length - 1; index >= 0; index--) {
+        for (let index = 0; index < candidateIDs.length; ++index) {
             const id = candidateIDs[index];
             if (id !== drawableID) {
                 const drawable = this._allDrawables[id];
@@ -1614,7 +1624,7 @@ class RenderWebGL extends EventEmitter {
             bounds.width,
             bounds.height
         );
-        const projection = twgl.m4.ortho(bounds.left, bounds.right, bounds.top, bounds.bottom, -1, 1);
+        const projection = this._makeOrthoProjection(bounds.left, bounds.right, bounds.top, bounds.bottom);
 
         // Draw the stamped sprite onto the PenSkin's framebuffer.
         this._drawThese([stampID], ShaderManager.DRAW_MODE.default, projection, {ignoreVisibility: true});
@@ -1695,7 +1705,7 @@ class RenderWebGL extends EventEmitter {
      * can skip superfluous extra state calls when it is already in that
      * region. Since one region may be entered from within another a exit
      * handle can also be registered that is called when a new region is about
-     * to be entered to restore a common inbetween state.
+     * to be entered to restore a common in-between state.
      *
      * @param {any} regionId - id of the region to enter
      * @param {function} enter - handle to call when first entering a region
@@ -1873,12 +1883,16 @@ class RenderWebGL extends EventEmitter {
         // *Not* Scratch Space-- +y is bottom
         // Loop over all rows of pixels, starting at the top
         for (let y = 0; y < height; y++) {
-            _pixelPos[1] = y / height;
+            // See comment in Drawable.getLocalPosition for why we're adding 0.5 here.
+            // Essentially, _pixelPos is supposed to be in "texture space", and "texture space" positions are offset
+            // by 0.5. Notice that we're calling drawable.skin.isTouchingLinear (operates in texture space)
+            // and not drawable.isTouching (operates in Scratch space).
+            _pixelPos[1] = (y + 0.5) / height;
 
             // We start at the leftmost point, then go rightwards until we hit an opaque pixel
             let x = 0;
             for (; x < width; x++) {
-                _pixelPos[0] = x / width;
+                _pixelPos[0] = (x + 0.5) / width;
                 EffectTransform.transformPoint(drawable, _pixelPos, _effectPos);
                 if (drawable.skin.isTouchingLinear(_effectPos)) {
                     currentPoint = [x, y];
@@ -1915,7 +1929,7 @@ class RenderWebGL extends EventEmitter {
 
             // Now we repeat the process for the right side, looking leftwards for a pixel.
             for (x = width - 1; x >= 0; x--) {
-                _pixelPos[0] = x / width;
+                _pixelPos[0] = (x + 0.5) / width;
                 EffectTransform.transformPoint(drawable, _pixelPos, _effectPos);
                 if (drawable.skin.isTouchingLinear(_effectPos)) {
                     currentPoint = [x, y];
@@ -1953,8 +1967,7 @@ class RenderWebGL extends EventEmitter {
      * Sample a "final" color from an array of drawables at a given scratch space.
      * Will blend any alpha values with the drawables "below" it.
      * @param {twgl.v3} vec Scratch Vector Space to sample
-     * @param {Array<Drawables>} drawables A list of drawables with the "top most"
-     *              drawable at index 0
+     * @param {Array<Drawables>} drawables A list of drawables with the "bottom most" drawable at index 0
      * @param {Uint8ClampedArray} dst The color3b space to store the answer in.
      * @return {Uint8ClampedArray} The dst vector with everything blended down.
      */
@@ -1962,7 +1975,7 @@ class RenderWebGL extends EventEmitter {
         dst = dst || new Uint8ClampedArray(3);
         dst.fill(0);
         let blendAlpha = 1;
-        for (let index = 0; blendAlpha !== 0 && index < drawables.length; index++) {
+        for (let index = drawables.length - 1; blendAlpha !== 0 && index >= 0; --index) {
             /*
             if (left > vec[0] || right < vec[0] ||
                 bottom > vec[1] || top < vec[0]) {

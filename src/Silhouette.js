@@ -16,19 +16,19 @@ const intMin = (i, j) => j ^ ((i ^ j) & ((i - j) >> 31));
 const intMax = (i, j) => i ^ ((i ^ j) & ((i - j) >> 31));
 
 /**
- * Internal helper function (in hopes that compiler can inline).  Get a pixel
- * from silhouette data, or 0 if outside it's bounds.
+ * Internal helper function (in hopes that compiler can inline).  Get a pixel's alpha
+ * from silhouette data, matching texture sampling rules.
  * @private
- * @param {Silhouette} silhouette - has data width and height
- * @param {number} x - x
- * @param {number} y - y
+ * @param {Silhouette} $0 - has data, width, and height
+ * @param {number} x - X position in texels (0..width).
+ * @param {number} y - Y position in texels (0..height).
  * @return {number} Alpha value for x/y position
  */
 const getPoint = ({_width: width, _height: height, _colorData: data}, x, y) => {
-    // 0 if outside bounds, otherwise read from data.
-    if (x >= width || y >= height || x < 0 || y < 0) {
-        return 0;
-    }
+    // Clamp coords to edge, matching GL_CLAMP_TO_EDGE.
+    x = intMax(0, intMin(x, width - 1));
+    y = intMax(0, intMin(y, height - 1));
+
     return data[(((y * width) + x) * 4) + 3];
 };
 
@@ -57,10 +57,6 @@ const getColor4b = ({_width: width, _height: height, _colorData: data}, x, y, ds
     x = intMax(0, intMin(x, width - 1));
     y = intMax(0, intMin(y, height - 1));
 
-    // 0 if outside bounds, otherwise read from data.
-    if (x >= width || y >= height || x < 0 || y < 0) {
-        return dst.fill(0);
-    }
     const offset = ((y * width) + x) * 4;
     // premultiply alpha
     const alpha = data[offset + 3] / 255;
@@ -157,7 +153,7 @@ class Silhouette {
         }
 
         this._colorData = imageData.data;
-        // delete our custom overriden "uninitalized" color functions
+        // delete our custom overridden "uninitialized" color functions
         // let the prototype work for itself
         delete this.colorAtNearest;
         delete this.colorAtLinear;
@@ -173,8 +169,8 @@ class Silhouette {
     colorAtNearest (vec, dst) {
         return this._getColor(
             this,
-            Math.floor(vec[0] * (this._width - 1)),
-            Math.floor(vec[1] * (this._height - 1)),
+            Math.floor(vec[0] * this._width),
+            Math.floor(vec[1] * this._height),
             dst
         );
     }
@@ -187,8 +183,13 @@ class Silhouette {
      * @returns {Uint8ClampedArray} dst
      */
     colorAtLinear (vec, dst) {
-        const x = vec[0] * (this._width - 1);
-        const y = vec[1] * (this._height - 1);
+        // In texture space, pixel centers are at integer coords. Here, the *corners* are at integers.
+        // We cannot skip the "add 0.5 in Drawable.getLocalPosition -> subtract 0.5 here" roundtrip
+        // because the two spaces are different--we add 0.5 in Drawable.getLocalPosition in "Scratch space"
+        // (-240,240 & -180,180), but subtract 0.5 in silhouette space (0, width or height).
+        // See https://web.archive.org/web/20190125211252/http://hacksoflife.blogspot.com/2009/12/texture-coordinate-system-for-opengl.html
+        const x = (vec[0] * (this._width)) - 0.5;
+        const y = (vec[1] * (this._height)) - 0.5;
 
         const x1D = x % 1;
         const y1D = y % 1;
@@ -218,10 +219,17 @@ class Silhouette {
      */
     isTouchingNearest (vec) {
         if (!this._colorData) return;
+
+        // Never touching if the coord falls outside the texture space.
+        if (vec[0] < 0 || vec[0] > 1 ||
+            vec[1] < 0 || vec[1] > 1) {
+            return false;
+        }
+
         return getPoint(
             this,
-            Math.floor(vec[0] * (this._width - 1)),
-            Math.floor(vec[1] * (this._height - 1))
+            Math.floor(vec[0] * this._width),
+            Math.floor(vec[1] * this._height)
         ) > 0;
     }
 
@@ -233,8 +241,15 @@ class Silhouette {
      */
     isTouchingLinear (vec) {
         if (!this._colorData) return;
-        const x = Math.floor(vec[0] * (this._width - 1));
-        const y = Math.floor(vec[1] * (this._height - 1));
+
+        // Never touching if the coord falls outside the texture space.
+        if (vec[0] < 0 || vec[0] > 1 ||
+            vec[1] < 0 || vec[1] > 1) {
+            return false;
+        }
+
+        const x = Math.floor((vec[0] * this._width) - 0.5);
+        const y = Math.floor((vec[1] * this._height) - 0.5);
         return getPoint(this, x, y) > 0 ||
             getPoint(this, x + 1, y) > 0 ||
             getPoint(this, x, y + 1) > 0 ||
