@@ -1,0 +1,124 @@
+version: 2
+updates:
+- package-ecosystem: npm
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "10:00"
+  open-pull-requests-limit: 99
+  versioning-strategy: increase-if-necessary
+  ignore:
+  - dependency-name: webpack
+    versions:
+    - 5.24.0
+    - 5.24.1
+    - 5.24.2
+    - 5.24.3
+    - 5.24.4
+    - 5.25.0
+    - 5.25.1
+    - 5.26.0
+    - 5.26.1
+    - 5.26.2
+    - 5.26.3
+    - 5.27.0
+    - 5.27.1
+    - 5.27.2
+    - 5.28.0
+    - 5.30.0
+    - 5.31.0
+    - 5.31.1
+    - 5.31.2
+    - 5.32.0
+    - 5.33.2
+    - 5.34.0
+    - 5.35.0
+    - 5.35.1
+    - 5.36.0
+  - dependency-name: tap
+    versions:
+    - 14.11.0
+    - 15.0.0
+    - 15.0.1
+    - 15.0.2
+    - 15.0.3
+    - 15.0.4
+  - dependency-name: scratch-vm
+    versions:
+    - 0.2.0-prerelease.20210128185110
+    - 0.2.0-prerelease.20210131081141
+    - 0.2.0-prerelease.20210131100123
+    - 0.2.0-prerelease.20210202075904
+    - 0.2.0-prerelease.20210202100335
+    - 0.2.0-prerelease.20210215122942
+    - 0.2.0-prerelease.20210215123847
+    - 0.2.0-prerelease.20210216105605
+    - 0.2.0-prerelease.20210216110805
+    - 0.2.0-prerelease.20210217110055
+    - 0.2.0-prerelease.20210217111245
+    - 0.2.0-prerelease.20210219110759
+    - 0.2.0-prerelease.20210219113123
+    - 0.2.0-prerelease.20210222114828
+    - 0.2.0-prerelease.20210222121909
+    - 0.2.0-prerelease.20210222123551
+    - 0.2.0-prerelease.20210222124520
+    - 0.2.0-prerelease.20210223130923
+    - 0.2.0-prerelease.20210223134242
+    - 0.2.0-prerelease.20210223140157
+    - 0.2.0-prerelease.20210224111250
+    - 0.2.0-prerelease.20210224112730
+    - 0.2.0-prerelease.20210225111818
+    - 0.2.0-prerelease.20210226131112
+    - 0.2.0-prerelease.20210226133736
+    - 0.2.0-prerelease.20210226135205
+    - 0.2.0-prerelease.20210302015938
+    - 0.2.0-prerelease.20210302185520
+    - 0.2.0-prerelease.20210303110522
+    - 0.2.0-prerelease.20210303111759
+    - 0.2.0-prerelease.20210304112722
+    - 0.2.0-prerelease.20210305105847
+    - 0.2.0-prerelease.20210305111103
+    - 0.2.0-prerelease.20210308120631
+    - 0.2.0-prerelease.20210308213018
+    - 0.2.0-prerelease.20210308233507
+    - 0.2.0-prerelease.20210309115831
+    - 0.2.0-prerelease.20210309123642
+    - 0.2.0-prerelease.20210309125821
+    - 0.2.0-prerelease.20210309144840
+    - 0.2.0-prerelease.20210310110119
+    - 0.2.0-prerelease.20210312105416
+    - 0.2.0-prerelease.20210312110638
+    - 0.2.0-prerelease.20210315122756
+    - 0.2.0-prerelease.20210315123830
+    - 0.2.0-prerelease.20210316105932
+    - 0.2.0-prerelease.20210316111200
+    - 0.2.0-prerelease.20210317110333
+    - 0.2.0-prerelease.20210317111523
+    - 0.2.0-prerelease.20210318111352
+    - 0.2.0-prerelease.20210318112319
+    - 0.2.0-prerelease.20210318114153
+    - 0.2.0-prerelease.20210318120534
+    - 0.2.0-prerelease.20210319110039
+    - 0.2.0-prerelease.20210319111230
+    - 0.2.0-prerelease.20210322113444
+    - 0.2.0-prerelease.20210323142245
+    - 0.2.0-prerelease.20210323145455
+    - 0.2.0-prerelease.20210323151451
+    - 0.2.0-prerelease.20210323212838
+    - 0.2.0-prerelease.20210324105952
+    - 0.2.0-prerelease.20210324111836
+    - 0.2.0-prerelease.20210401223708
+  - dependency-name: scratch-svg-renderer
+    versions:
+    - 0.2.0-prerelease.20210325225314
+  - dependency-name: twgl.js
+    versions:
+    - 4.18.0
+    - 4.19.0
+  - dependency-name: webpack-cli
+    versions:
+    - 4.4.0
+    - 4.5.0
+  - dependency-name: json
+    versions:
+    - 10.0.0
