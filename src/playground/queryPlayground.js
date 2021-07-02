@@ -47,9 +47,7 @@ const handleCursorPositionChanged = () => {
     labelCursorPosition.innerHTML = positionHTML;
     if (drawables.cursor >= 0) {
         renderer.draw();
-        renderer.updateDrawableProperties(drawables.cursor, {
-            position: [cursorX, cursorY]
-        });
+        renderer.updateDrawablePosition(drawables.cursor, [cursorX, cursorY]);
 
         renderer.setUseGpuMode(ScratchRender.UseGpuModes.ForceGPU);
         renderer.setDebugCanvas(gpuQueryCanvas);
@@ -160,7 +158,7 @@ const makeTestPatternDrawable = function (group) {
     const image = makeTestPatternImage();
     const skinId = renderer.createBitmapSkin(image, 1);
     const drawableId = renderer.createDrawable(group);
-    renderer.updateDrawableProperties(drawableId, {skinId});
+    renderer.updateDrawableSkinId(drawableId, skinId);
     return drawableId;
 };
 
@@ -168,7 +166,7 @@ const makeCursorDrawable = function (group) {
     const image = makeCursorImage();
     const skinId = renderer.createBitmapSkin(image, 1, [0, 0]);
     const drawableId = renderer.createDrawable(group);
-    renderer.updateDrawableProperties(drawableId, {skinId});
+    renderer.updateDrawableSkinId(drawableId, skinId);
     return drawableId;
 };
 
@@ -186,10 +184,10 @@ const initRendering = () => {
     const corner10 = makeCursorDrawable(layerGroup.cursor);
     const corner11 = makeCursorDrawable(layerGroup.cursor);
 
-    renderer.updateDrawableProperties(corner00, {position: [-240, -179]});
-    renderer.updateDrawableProperties(corner01, {position: [-240, 180]});
-    renderer.updateDrawableProperties(corner10, {position: [239, -179]});
-    renderer.updateDrawableProperties(corner11, {position: [239, 180]});
+    renderer.updateDrawablePosition(corner00, [-240, -179]);
+    renderer.updateDrawablePosition(corner01, [-240, 180]);
+    renderer.updateDrawablePosition(corner10, [239, -179]);
+    renderer.updateDrawablePosition(corner11, [239, 180]);
 };
 
 initRendering();

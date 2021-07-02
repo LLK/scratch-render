@@ -1492,27 +1492,6 @@ class RenderWebGL extends EventEmitter {
     }
 
     /**
-     * Update the position, direction, scale, or effect properties of this Drawable.
-     * @deprecated Use specific updateDrawable* methods instead.
-     * @param {int} drawableID The ID of the Drawable to update.
-     * @param {object.<string,*>} properties The new property values to set.
-     */
-    updateDrawableProperties (drawableID, properties) {
-        const drawable = this._allDrawables[drawableID];
-        if (!drawable) {
-            /**
-             * @todo(https://github.com/LLK/scratch-vm/issues/2288) fix whatever's wrong in the VM which causes this, then add a warning or throw here.
-             * Right now this happens so much on some projects that a warning or exception here can hang the browser.
-             */
-            return;
-        }
-        if ('skinId' in properties) {
-            this.updateDrawableSkinId(drawableID, properties.skinId);
-        }
-        drawable.updateProperties(properties);
-    }
-
-    /**
      * Update the position object's x & y members to keep the drawable fenced in view.
      * @param {int} drawableID - The ID of the Drawable to update.
      * @param {Array.<number, number>} position to be fenced - An array of type [x, y]

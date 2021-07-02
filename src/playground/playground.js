@@ -2,16 +2,12 @@ const ScratchRender = require('../RenderWebGL');
 const getMousePosition = require('./getMousePosition');
 
 const canvas = document.getElementById('scratch-stage');
-let fudge = 90;
 const renderer = new ScratchRender(canvas);
 renderer.setLayerGroupOrdering(['group1']);
 
 const drawableID = renderer.createDrawable('group1');
-renderer.updateDrawableProperties(drawableID, {
-    position: [0, 0],
-    scale: [100, 100],
-    direction: 90
-});
+renderer.updateDrawablePosition(drawableID, [0, 0]);
+renderer.updateDrawableDirectionScale(drawableID, 90, [100, 100]);
 
 const WantedSkinType = {
     bitmap: 'bitmap',
@@ -27,9 +23,7 @@ const image = new Image();
 image.addEventListener('load', () => {
     const bitmapSkinId = renderer.createBitmapSkin(image);
     if (wantedSkin === WantedSkinType.bitmap) {
-        renderer.updateDrawableProperties(drawableID2, {
-            skinId: bitmapSkinId
-        });
+        renderer.updateDrawableSkinId(drawableID2, bitmapSkinId);
     }
 });
 image.crossOrigin = 'anonymous';
@@ -40,9 +34,7 @@ const xhr = new XMLHttpRequest();
 xhr.addEventListener('load', () => {
     const skinId = renderer.createSVGSkin(xhr.responseText);
     if (wantedSkin === WantedSkinType.vector) {
-        renderer.updateDrawableProperties(drawableID2, {
-            skinId: skinId
-        });
+        renderer.updateDrawableSkinId(drawableID2, skinId);
     }
 });
 xhr.open('GET', 'https://cdn.assets.scratch.mit.edu/internalapi/asset/b7853f557e4426412e64bb3da6531a99.svg/get/');
@@ -51,9 +43,7 @@ xhr.send();
 if (wantedSkin === WantedSkinType.pen) {
     const penSkinID = renderer.createPenSkin();
 
-    renderer.updateDrawableProperties(drawableID2, {
-        skinId: penSkinID
-    });
+    renderer.updateDrawableSkinId(drawableID2, penSkinID);
 
     canvas.addEventListener('click', event => {
         const rect = canvas.getBoundingClientRect();
@@ -111,56 +101,36 @@ fudgeMaxInput.dispatchEvent(new CustomEvent('init'));
 fudgeInput.dispatchEvent(new CustomEvent('init'));
 
 const handleFudgeChanged = function (event) {
-    fudge = event.target.valueAsNumber;
-    const props = {};
+    const fudge = event.target.valueAsNumber;
     switch (fudgeProperty) {
     case 'posx':
-        props.position = [fudge, posY];
         posX = fudge;
+        renderer.updateDrawablePosition(drawableID2, [posX, posY]);
         break;
     case 'posy':
-        props.position = [posX, fudge];
         posY = fudge;
+        renderer.updateDrawablePosition(drawableID2, [posX, posY]);
         break;
     case 'direction':
-        props.direction = fudge;
+        renderer.updateDrawableDirection(drawableID2, fudge);
         break;
     case 'scalex':
-        props.scale = [fudge, scaleY];
-        scaleX = fudge;
-        break;
     case 'scaley':
-        props.scale = [scaleX, fudge];
-        scaleY = fudge;
-        break;
     case 'scaleboth':
-        props.scale = [fudge, fudge];
-        scaleX = fudge;
-        scaleY = fudge;
+        if (fudgeProperty === 'scalex' || fudgeProperty === 'scaleboth') scaleX = fudge;
+        if (fudgeProperty === 'scaley' || fudgeProperty === 'scaleboth') scaleY = fudge;
+        renderer.updateDrawableScale(drawableID2, [scaleX, scaleY]);
         break;
     case 'color':
-        props.color = fudge;
-        break;
     case 'whirl':
-        props.whirl = fudge;
-        break;
     case 'fisheye':
-        props.fisheye = fudge;
-        break;
     case 'pixelate':
-        props.pixelate = fudge;
-        break;
     case 'mosaic':
-        props.mosaic = fudge;
-        break;
     case 'brightness':
-        props.brightness = fudge;
-        break;
     case 'ghost':
-        props.ghost = fudge;
+        renderer.updateDrawableEffect(drawableID2, fudgeProperty, fudge);
         break;
     }
-    renderer.updateDrawableProperties(drawableID2, props);
 };
 
 fudgeInput.addEventListener('input', handleFudgeChanged);

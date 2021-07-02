@@ -271,33 +271,6 @@ class Drawable {
     }
 
     /**
-     * Update the position, direction, scale, or effect properties of this Drawable.
-     * @deprecated Use specific update* methods instead.
-     * @param {object.<string,*>} properties The new property values to set.
-     */
-    updateProperties (properties) {
-        if ('position' in properties) {
-            this.updatePosition(properties.position);
-        }
-        if ('direction' in properties) {
-            this.updateDirection(properties.direction);
-        }
-        if ('scale' in properties) {
-            this.updateScale(properties.scale);
-        }
-        if ('visible' in properties) {
-            this.updateVisible(properties.visible);
-        }
-        const numEffects = ShaderManager.EFFECTS.length;
-        for (let index = 0; index < numEffects; ++index) {
-            const effectName = ShaderManager.EFFECTS[index];
-            if (effectName in properties) {
-                this.updateEffect(effectName, properties[effectName]);
-            }
-        }
-    }
-
-    /**
      * Calculate the transform to use when rendering this Drawable.
      * @private
      */
